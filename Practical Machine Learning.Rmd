@@ -1,0 +1,93 @@
+---
+title: "Human Activity Recognition"
+author: "attackgnome"
+date: "7/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(data.table)
+library(caret)
+library(Metrics)
+```
+
+## Executive Summary
+
+This notebook takes test and training data from the Weight Lifting Exercise Dataset at http://groupware.les.inf.puc-rio.br/har to develop a model that can predict from accelerometer data, whether an exercise is being performed correctly or incorrectly.
+
+##Load Data
+Download the relevant test and train datasets. Remove columns from the train data set that are composed entirely of NA's. Also remove time stamp data, window data, and the trainee's name. 
+
+```{r load_data}
+#training data
+url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+temp <- tempfile()
+download.file(url,temp)
+train <- fread(temp)
+train <- train %>% select_if(~all(!is.na(.)))
+train <- train[,8:60]
+train <- train %>% mutate_if(is.character,as.factor)
+
+#testing data
+url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+temp <- tempfile()
+download.file(url,temp)
+test <- fread(temp)
+
+unlink(temp)
+rm(temp, url)
+```
+
+## Validation dataset
+
+The testing data provided is for the purposes of the course, but in order for us validate our model before submitting our results, we will want to test the model we create on a set of data where the answer is know. We will take the train data set and split it into one dataset, `train_df` that we will use to build the model, and a second dataset, `valid_df` that we will use to validate the model before submission. 
+
+```{r split_data}
+set.seed(3456)
+trainIndex <- createDataPartition(train$classe, p = .7, 
+                                  list = FALSE, 
+                                  times = 1)
+train_df <- train[ trainIndex,]
+valid_df  <- train[-trainIndex,]
+```
+
+
+## Feature selection
+Even after removing the column features composed entirely of Na's in the train dataset, There are approximately 60 potential features that we can use to predict the `classe` variable. We will use recursive feature elimination with cross validation use 10 folds to select the subset of predictors that we will want to use. 
+
+```{r feature_selection}
+# define the control using a random forest selection function
+control <- rfeControl(functions=rfFuncs, method="cv", number=5)
+# run the RFE algorithm
+results <- rfe(train_df[,1:52], train_df[[53]], rfeControl=control)
+# summarize the results
+print(results)
+# list the chosen features
+predictors(results)
+# plot the results
+plot(results, type=c("g", "o"))
+```
+From this feature selection method combined with removing NA values, time stamp data and the training window data, we end up using `r results$bestSubset` of the original in our model.
+
+
+## Model Validation
+
+In the next step we will predict the class on the validation data that we held out and see what type of accuracy our model achieves.
+
+```{r validation}
+predicted <- predict(results, valid_df, type = "raw")
+
+accuracy(valid_df$classe, predicted$pred )
+
+```
+It looks like our error rate is less than 1%. Considering that this is from data that we held out. I would expect to be able to achieve a similar out of sample error rate. 
+
+##Predict Test data
+
+The final step is to use the model to predict the classes for the test data downloaded at the beginning of the notebook and predict those classes. 
+
+```{r test}
+predict(results, test, type = "raw")
+```
